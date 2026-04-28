@@ -1,5 +1,5 @@
 local API_URL = "http://72.60.1.175/verify"
-local SCRIPT_URL = "https://raw.githubusercontent.com/SEU-USER/bpv10/main/main.lua"
+local SCRIPT_URL = "https://raw.githubusercontent.com/bullys777/bv10/main/main.lua"
 local SECRET = "hC61yfvevPkGZxuD2LiP1LfXENMAlKKZ"
 
 local key = _G.key
