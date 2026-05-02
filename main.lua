@@ -10667,13 +10667,17 @@ task.spawn(function()
 
     local function checkSteal(gui)
 
-        if not Config.AutoKickOnSteal then return end
+        if not Config.AutoKickOnSteal and not Config.AutoPickupKick then return end
 
         local txt = (gui:IsA("TextLabel") or gui:IsA("TextButton")) and gui.Text
 
         if txt and string.find(txt, "You stole") then
 
-            kickPlayer()
+            if Config.AutoKickOnSteal or Config.AutoPickupKick then
+
+                kickPlayer()
+
+            end
 
         end
 
@@ -19089,6 +19093,7 @@ task.spawn(function()
     local beam = nil
     local billboard = nil
     local textLabel = nil
+    local stickBones = nil       -- {head, isR15, char, bones={spine,lArm,...}}
 
     local function destroySkeleton()
         if skeletonModel and skeletonModel.Parent then pcall(function() skeletonModel:Destroy() end) end
@@ -19098,6 +19103,7 @@ task.spawn(function()
         billboard = nil
         textLabel = nil
         skelAtt = nil
+        stickBones = nil
     end
 
     local function buildSkeleton(char)
@@ -19164,6 +19170,55 @@ task.spawn(function()
         textLabel.TextSize = 13
         textLabel.Text = "[POS] 0.0 st"
         textLabel.Parent = billboard
+
+        -- ── STICK FIGURE (palito) ─────────────────────────────────────
+        local function makeBonePart(name, thickness)
+            local p = Instance.new("Part")
+            p.Name = name
+            p.Size = Vector3.new(thickness or 0.15, thickness or 0.15, 1)
+            p.Anchored = true
+            p.CanCollide = false; p.CanTouch = false; p.CanQuery = false
+            p.CastShadow = false; p.Massless = true
+            p.Material = Enum.Material.Neon
+            p.Color = PART_COLOR
+            p.Transparency = 0.15
+            p.Parent = skeletonModel
+            return p
+        end
+
+        local headPart = Instance.new("Part")
+        headPart.Name = "StickHead"
+        headPart.Shape = Enum.PartType.Ball
+        headPart.Size = Vector3.new(1.1, 1.1, 1.1)
+        headPart.Anchored = true
+        headPart.CanCollide = false; headPart.CanTouch = false; headPart.CanQuery = false
+        headPart.CastShadow = false; headPart.Massless = true
+        headPart.Material = Enum.Material.Neon
+        headPart.Color = PART_COLOR
+        headPart.Transparency = 0.15
+        headPart.Parent = skeletonModel
+
+        local isR15 = char:FindFirstChild("UpperTorso") ~= nil
+        local bones = {}
+        if isR15 then
+            bones.spine     = makeBonePart("Spine")
+            bones.lArm      = makeBonePart("LArm")
+            bones.lForearm  = makeBonePart("LForearm")
+            bones.rArm      = makeBonePart("RArm")
+            bones.rForearm  = makeBonePart("RForearm")
+            bones.lThigh    = makeBonePart("LThigh")
+            bones.lShin     = makeBonePart("LShin")
+            bones.rThigh    = makeBonePart("RThigh")
+            bones.rShin     = makeBonePart("RShin")
+        else
+            bones.spine = makeBonePart("Spine")
+            bones.lArm  = makeBonePart("LArm")
+            bones.rArm  = makeBonePart("RArm")
+            bones.lLeg  = makeBonePart("LLeg")
+            bones.rLeg  = makeBonePart("RLeg")
+        end
+
+        stickBones = { head = headPart, bones = bones, isR15 = isR15, char = char }
     end
 
     local function ensureHrpAtt()
@@ -19224,6 +19279,58 @@ task.spawn(function()
         for realPart, clonePart in pairs(skeletonParts) do
             if realPart.Parent and clonePart.Parent then
                 clonePart.CFrame = realPart.CFrame + offset
+            end
+        end
+
+        -- Atualiza stick figure (palito): posiciona cada bone entre os joints do char
+        if stickBones and stickBones.char and stickBones.char.Parent then
+            local sChar = stickBones.char
+            local function partPos(name)
+                local p = sChar:FindFirstChild(name)
+                if p and p:IsA("BasePart") then return p.Position + offset end
+                return nil
+            end
+            local function setBone(p, p1, p2, thickness)
+                if not (p and p1 and p2) then return end
+                local d = p2 - p1
+                local len = d.Magnitude
+                if len < 0.01 then return end
+                p.Size = Vector3.new(thickness or 0.15, thickness or 0.15, len)
+                local mid = (p1 + p2) / 2
+                p.CFrame = CFrame.lookAt(mid, p2)
+            end
+
+            local hp = partPos("Head")
+            if hp and stickBones.head then
+                stickBones.head.CFrame = CFrame.new(hp)
+            end
+
+            if stickBones.isR15 then
+                local ut = partPos("UpperTorso"); local lt = partPos("LowerTorso")
+                setBone(stickBones.bones.spine, ut, lt)
+                local lua = partPos("LeftUpperArm"); local lla = partPos("LeftLowerArm"); local lh = partPos("LeftHand")
+                setBone(stickBones.bones.lArm, lua, lla)
+                setBone(stickBones.bones.lForearm, lla, lh)
+                local rua = partPos("RightUpperArm"); local rla = partPos("RightLowerArm"); local rh = partPos("RightHand")
+                setBone(stickBones.bones.rArm, rua, rla)
+                setBone(stickBones.bones.rForearm, rla, rh)
+                local lul = partPos("LeftUpperLeg"); local lll = partPos("LeftLowerLeg"); local lf = partPos("LeftFoot")
+                setBone(stickBones.bones.lThigh, lul, lll)
+                setBone(stickBones.bones.lShin, lll, lf)
+                local rul = partPos("RightUpperLeg"); local rll = partPos("RightLowerLeg"); local rf = partPos("RightFoot")
+                setBone(stickBones.bones.rThigh, rul, rll)
+                setBone(stickBones.bones.rShin, rll, rf)
+            else
+                local hd = partPos("Head"); local to = partPos("Torso")
+                setBone(stickBones.bones.spine, hd, to)
+                local la = partPos("Left Arm")
+                setBone(stickBones.bones.lArm, to, la)
+                local ra = partPos("Right Arm")
+                setBone(stickBones.bones.rArm, to, ra)
+                local ll = partPos("Left Leg")
+                setBone(stickBones.bones.lLeg, to, ll)
+                local rl = partPos("Right Leg")
+                setBone(stickBones.bones.rLeg, to, rl)
             end
         end
 
@@ -20526,20 +20633,20 @@ end
 
 _G.BullysReverseSwapHandler = bullysDefaultReverseSwap
 
--- ══════════════════════════════════════════════════════════════════════════
--- ▸ AUTO PICKUP · Lógica EXATA importada do hub Logística ◂
--- Pega automaticamente o brainrot mais próximo na própria base.
--- Só fica ativo se player estiver dentro da própria base (sign dist < 200).
--- Não teleporta — apenas trava CFrame em cima do target e dispara o prompt.
--- Para se o player já estiver segurando o brainrot.
--- ══════════════════════════════════════════════════════════════════════════
-task.spawn(function()
-    if not Config.AutoPickupKey then Config.AutoPickupKey = "B" end
-    if Config.AutoPickupActive == nil then Config.AutoPickupActive = false end
-    if Config.AutoPickupKick == nil then Config.AutoPickupKick = false end
-
+-- ── AUTO PICKUP ──────────────────────────────────────────────────────────────
+-- Pega automaticamente o brainrot mais próximo na SUA base.
+-- Só fica realmente ativo se o player estiver dentro da própria base.
+-- Não teleporta — apenas dispara o prompt de coleta.
+-- Para se o player já estiver segurando o brainrot (tool equipada).
+-- VERBATIM IMPORT do hub Logística (sem UI; integrado com mini ACTIONS panel).
+local function initAutoPickup()
     local autoPickupActive = false
 
+    if not Config.AutoPickupKey    then Config.AutoPickupKey    = "B"    end
+    if Config.AutoPickupActive == nil then Config.AutoPickupActive = false end
+    if Config.AutoPickupKick == nil   then Config.AutoPickupKick   = false end
+
+    -- ── Encontra o plot do LocalPlayer ───────────────────────────────────────
     local function findMyPlot()
         local plots = Workspace:FindFirstChild("Plots")
         if not plots then return nil end
@@ -20561,6 +20668,7 @@ task.spawn(function()
         return nil
     end
 
+    -- ── Verifica se está dentro da própria base ───────────────────────────────
     local function isInsideMyBase(hrp, myPlot)
         if not hrp or not myPlot then return false end
         local sign = myPlot:FindFirstChild("PlotSign")
@@ -20572,6 +20680,7 @@ task.spawn(function()
         return d < 200
     end
 
+    -- ── Verifica se o player está segurando um brainrot (não o carpet nem ferramentas do script) ───
     local IGNORED_TOOLS = {
         ["Flying Carpet"] = true,
         ["Quantum Cloner"] = true,
@@ -20583,6 +20692,7 @@ task.spawn(function()
         local carpetName = (Config.TpSettings and Config.TpSettings.Tool) or "Flying Carpet"
         for _, v in ipairs(char:GetChildren()) do
             if v:IsA("Tool") then
+                -- Ignora o carpet configurado e ferramentas conhecidas
                 if v.Name == carpetName then continue end
                 if IGNORED_TOOLS[v.Name] then continue end
                 return true
@@ -20591,29 +20701,11 @@ task.spawn(function()
         return false
     end
 
+    -- ── Encontra o ProximityPrompt de coleta mais próximo na base ────────────
     local PICKUP_KEYWORDS = {"collect","coletar","pickup","pick up","pegar","grab","take"}
-
-    local function getBestBaseTarget()
-        local cache = SharedState.AllAnimalsCache
-        if not cache then return nil, nil end
-        local myName = LocalPlayer.Name
-        local bestPart, bestData = nil, nil
-        local bestGv = 9999999  -- só aceita ≥10M
-        for _, a in ipairs(cache) do
-            if a and a.owner == myName and (tonumber(a.genValue) or 0) > bestGv then
-                local part = findAdorneeGlobal(a)
-                if part and part.Parent then
-                    bestGv   = tonumber(a.genValue)
-                    bestPart = part
-                    bestData = a
-                end
-            end
-        end
-        return bestPart, bestData
-    end
-
-    local function getPromptForPart(targetPart, myPlot)
-        if not targetPart or not myPlot then return nil end
+    local function findNearestPickupPrompt(hrp, myPlot)
+        if not hrp or not myPlot then return nil, nil end
+        local best, bestDist, bestPart = nil, math.huge, nil
         for _, obj in ipairs(myPlot:GetDescendants()) do
             if obj:IsA("ProximityPrompt") and obj.Enabled then
                 local txt = (obj.ActionText or ""):lower()
@@ -20625,39 +20717,60 @@ task.spawn(function()
                     local part = obj.Parent
                     if part and part:IsA("Attachment") then part = part.Parent end
                     if part and part:IsA("BasePart") then
-                        local d = (part.Position - targetPart.Position).Magnitude
-                        if d < 12 then return obj end
+                        local d = (hrp.Position - part.Position).Magnitude
+                        if d < bestDist then
+                            bestDist = d
+                            best     = obj
+                            bestPart = part
+                        end
                     end
                 end
             end
         end
-        return nil
+        return best, bestPart
     end
+
+    -- Stub: sem UI de targets list, mantém ref pro selecionado (não usado sem UI)
+    local selectedPickupTarget = nil
+
+    -- Stub: sem lista UI, no-op
+    local function refreshTargetsList(myPlot) end
+
+    -- Stub: status label não existe, redireciona pra _G hook (mini panel) opcional
+    local statusLbl = setmetatable({}, { __newindex = function() end, __index = function() return "" end })
 
     local function toggle()
         autoPickupActive = not autoPickupActive
         Config.AutoPickupActive = autoPickupActive
-        SaveConfig()
-        if _G._pickupMiniRefresh then pcall(_G._pickupMiniRefresh) end
         ShowNotification("AUTO PICKUP", autoPickupActive and "ATIVADO" or "DESATIVADO")
+        if autoPickupActive then
+            -- Atualiza lista imediatamente ao ativar
+            task.spawn(function()
+                local plt = findMyPlot()
+                refreshTargetsList(plt)
+            end)
+        end
+        if _G._pickupMiniRefresh then pcall(_G._pickupMiniRefresh) end
+        SaveConfig()
     end
 
     _G.AutoPickupToggle = toggle
     _G.AutoPickupOnToggle = function(active)
-        autoPickupActive = active == true
-        Config.AutoPickupActive = autoPickupActive
+        autoPickupActive = active
+        Config.AutoPickupActive = active
         if _G._pickupMiniRefresh then pcall(_G._pickupMiniRefresh) end
     end
 
     UserInputService.InputBegan:Connect(function(input, processed)
         if processed then return end
-        local key = Config.AutoPickupKey
-        if not key or key == "" then return end
-        local ok, kc = pcall(function() return Enum.KeyCode[key] end)
-        if ok and kc and input.KeyCode == kc then toggle() end
+        if Config.AutoPickupKey and Config.AutoPickupKey ~= "" then
+            if input.KeyCode == Enum.KeyCode[Config.AutoPickupKey] then toggle() end
+        end
     end)
 
-    -- Loop principal (cópia EXATA do logistica)
+    autoPickupActive = Config.AutoPickupActive == true
+
+    -- ── Loop principal ────────────────────────────────────────────────────────
     task.spawn(function()
         local myPlot           = nil
         local plotRefreshTimer = 0
@@ -20666,7 +20779,6 @@ task.spawn(function()
         local lockConn         = nil
         local currentLockPart  = nil
         local camConn          = nil
-        local kickedThisHold   = false  -- evita kick duplo enquanto segura
 
         local function stopLock()
             if lockConn then lockConn:Disconnect(); lockConn = nil end
@@ -20719,6 +20831,8 @@ task.spawn(function()
                 if not hrp or not targetPart or not targetPart.Parent then return end
                 local cam = workspace.CurrentCamera
                 if not cam then return end
+                -- Posição da câmera: atrás e acima do personagem
+                local camOffset = Vector3.new(0, 6, 14)
                 local lookDir   = (targetPart.Position - hrp.Position)
                 local lookDirXZ = Vector3.new(lookDir.X, 0, lookDir.Z)
                 local backward  = lookDirXZ.Magnitude > 0 and -lookDirXZ.Unit or Vector3.new(0, 0, 1)
@@ -20727,12 +20841,70 @@ task.spawn(function()
             end)
         end
 
+        -- Encontra o melhor brainrot ≥10M da base (selecionado ou o de maior gen)
+        local function getBestBaseTarget()
+            -- Prioridade: target selecionado manualmente na lista
+            if selectedPickupTarget and selectedPickupTarget.data then
+                local d = selectedPickupTarget.data
+                if (tonumber(d.genValue) or 0) >= 10000000 then
+                    local part = findAdorneeGlobal(d)
+                    if part and part.Parent then
+                        return part, d
+                    end
+                end
+                -- target selecionado sumiu, limpa
+                selectedPickupTarget = nil
+            end
+
+            -- Fallback: maior genValue ≥10M do próprio player
+            local cache = SharedState.AllAnimalsCache
+            if not cache then return nil, nil end
+            local myName = LocalPlayer.Name
+            local bestPart, bestData = nil, nil
+            local bestGv = 9999999  -- só aceita ≥10M
+            for _, a in ipairs(cache) do
+                if a and a.owner == myName and (tonumber(a.genValue) or 0) > bestGv then
+                    local part = findAdorneeGlobal(a)
+                    if part and part.Parent then
+                        bestGv   = tonumber(a.genValue)
+                        bestPart = part
+                        bestData = a
+                    end
+                end
+            end
+            return bestPart, bestData
+        end
+
+        -- Encontra o prompt de coleta do target específico
+        local function getPromptForPart(targetPart, myPlot)
+            if not targetPart or not myPlot then return nil end
+            for _, obj in ipairs(myPlot:GetDescendants()) do
+                if obj:IsA("ProximityPrompt") and obj.Enabled then
+                    local txt = (obj.ActionText or ""):lower()
+                    local matched = false
+                    for _, kw in ipairs(PICKUP_KEYWORDS) do
+                        if txt:find(kw) then matched = true; break end
+                    end
+                    if matched then
+                        local part = obj.Parent
+                        if part and part:IsA("Attachment") then part = part.Parent end
+                        if part and part:IsA("BasePart") then
+                            local d = (part.Position - targetPart.Position).Magnitude
+                            if d < 12 then return obj end
+                        end
+                    end
+                end
+            end
+            return nil
+        end
+
         while true do
             task.wait(0.25)
 
             if not autoPickupActive then
+                statusLbl.Text = "Desativado"
+                statusLbl.TextColor3 = Theme.Error
                 wasHolding = false
-                kickedThisHold = false
                 stopLock()
                 continue
             end
@@ -20749,33 +20921,35 @@ task.spawn(function()
 
             -- Só executa dentro da própria base
             if not isInsideMyBase(hrp, myPlot) then
+                statusLbl.Text = "Fora da base"
+                statusLbl.TextColor3 = Theme.TextSecondary
                 wasHolding = false
                 stopLock()
                 continue
             end
 
+            -- Atualiza lista de targets a cada 0.5s
+            if (tick() - listRefreshTimer) > 0.5 then
+                refreshTargetsList(myPlot)
+                listRefreshTimer = tick()
+            end
+
             -- Verifica se há um brainrot ≥10M disponível
             local targetPart, targetData = getBestBaseTarget()
             if not targetPart then
+                statusLbl.Text = "Sem brainrot ≥10M"
+                statusLbl.TextColor3 = Theme.TextSecondary
                 stopLock()
                 continue
             end
 
             local holding = isHoldingBrainrot()
-
-            -- Detecta transição "pegou agora" (não estava segurando, agora está)
-            if holding and not wasHolding and not kickedThisHold then
-                kickedThisHold = true
-                if Config.AutoPickupKick then
-                    task.delay(0.5, function() pcall(kickPlayer) end)
-                end
-            end
-            if not holding then
-                kickedThisHold = false
-            end
+            wasHolding = holding
             wasHolding = holding
 
             if holding then
+                statusLbl.Text = "Segurando item"
+                statusLbl.TextColor3 = Color3.fromRGB(255, 200, 50)
                 stopLock()
                 continue
             end
@@ -20785,7 +20959,14 @@ task.spawn(function()
 
             -- Encontra e dispara o prompt do target específico
             local prompt = getPromptForPart(targetPart, myPlot)
-            if not prompt then continue end
+            if not prompt then
+                statusLbl.Text = "Aguardando prompt..."
+                statusLbl.TextColor3 = Theme.TextSecondary
+                continue
+            end
+
+            statusLbl.Text = "Coletando: " .. (targetData and targetData.name or "?")
+            statusLbl.TextColor3 = Theme.Success
 
             pcall(function()
                 if fireproximityprompt then
@@ -20798,4 +20979,7 @@ task.spawn(function()
             end)
         end
     end)
-end)
+end
+
+initAutoPickup()
+
