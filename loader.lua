@@ -2,92 +2,72 @@ local API_URL = "http://72.60.1.175/verify"
 local SCRIPT_URL = "https://raw.githubusercontent.com/bullys777/bv10/main/main.lua"
 local SECRET = "hC61yfvevPkGZxuD2LiP1LfXENMAlKKZ"
 
-local key = _G.key
-if not key then pcall(function() key = getgenv and getgenv().key end) end
-if not key or key == "" then warn("[bullysprivV10] _G.key not set"); return end
+local key = _G.key or (getgenv and getgenv().key)
+if not key or key == "" then return warn("[bullys] _G.key not set") end
 
 local Players = game:GetService("Players")
-local HttpService = game:GetService("HttpService")
+local Http = game:GetService("HttpService")
 
 local P = Players.LocalPlayer
 while not P do task.wait() P = Players.LocalPlayer end
 
-local hwid
+local hwidOk, hwid = pcall(function()
+    return P.UserId .. "_" .. P.AccountAge .. "_" .. game:GetService("RbxAnalyticsService"):GetClientId()
+end)
+if not hwidOk or not hwid or hwid == "" then return warn("[bullys] HWID failed") end
+
+local ctx = { executor = "Unknown" }
 pcall(function()
-    hwid = tostring(P.UserId) .. "_" .. tostring(P.AccountAge) .. "_" .. game:GetService("RbxAnalyticsService"):GetClientId()
+    ctx.executor = (identifyexecutor and identifyexecutor()) or (getexecutorname and getexecutorname()) or "Unknown"
+    ctx.username = P.Name
+    ctx.user_id = P.UserId
+    ctx.account_age = P.AccountAge
+    ctx.job_id = tostring(game.JobId)
+    ctx.place_id = tostring(game.PlaceId)
 end)
-if not hwid or hwid == "" then warn("[bullysprivV10] HWID failed"); return end
 
-local executor, jobId, placeId, userName, userId, accountAge
-pcall(function() executor = (identifyexecutor and identifyexecutor()) or (getexecutorname and getexecutorname()) or "Unknown" end)
-pcall(function() jobId = tostring(game.JobId) end)
-pcall(function() placeId = tostring(game.PlaceId) end)
-pcall(function() userName = P.Name end)
-pcall(function() userId = P.UserId end)
-pcall(function() accountAge = P.AccountAge end)
+local httpRequest = request or http_request or (syn and syn.request) or (http and http.request)
+if not httpRequest then return warn("[bullys] HTTP not available") end
 
-local req = request or http_request or (syn and syn.request) or (http and http.request)
-if not req then warn("[bullysprivV10] HTTP not available"); return end
+local payload = Http:JSONEncode({
+    key = key, hwid = hwid, secret = SECRET,
+    executor = ctx.executor, username = ctx.username, user_id = ctx.user_id,
+    account_age = ctx.account_age, job_id = ctx.job_id, place_id = ctx.place_id
+})
 
--- Run verify and main-script fetch in parallel — verify gates execution, fetch saves time
-local verifyDone, verifyOK, verifyError = false, false, nil
-local fetchDone, scriptBody = false, nil
+-- Verify (security gate) and fetch run in parallel
+local verify, body = nil, nil
 
 task.spawn(function()
-    local ok, resp = pcall(function()
-        return req({
-            Url = API_URL,
-            Method = "POST",
-            Headers = { ["Content-Type"] = "application/json" },
-            Body = HttpService:JSONEncode({
-                key = key, hwid = hwid, secret = SECRET,
-                executor = executor, username = userName, user_id = userId,
-                account_age = accountAge, job_id = jobId, place_id = placeId
-            })
-        })
-    end)
-    if not ok then
-        verifyError = "Connection failed"
-    else
-        local b = {}
-        pcall(function() b = HttpService:JSONDecode(resp.Body) end)
-        if resp.StatusCode == 200 and b.success then
-            verifyOK = true
-        else
-            verifyError = b.error or "Unauthorized"
-        end
-    end
-    verifyDone = true
+    local ok, resp = pcall(httpRequest, {
+        Url = API_URL, Method = "POST",
+        Headers = { ["Content-Type"] = "application/json" },
+        Body = payload
+    })
+    if not ok then verify = { ok = false, err = "Connection failed" } return end
+    local b = {}
+    pcall(function() b = Http:JSONDecode(resp.Body) end)
+    verify = (resp.StatusCode == 200 and b.success)
+        and { ok = true }
+        or { ok = false, err = b.error or "Unauthorized" }
 end)
 
 task.spawn(function()
-    pcall(function() scriptBody = game:HttpGet(SCRIPT_URL, true) end)
-    fetchDone = true
+    pcall(function() body = game:HttpGet(SCRIPT_URL, true) end)
+    if not body then pcall(function() body = game:HttpGet(SCRIPT_URL, true) end) end
 end)
 
--- Block on verify result first — this is the security gate
-while not verifyDone do task.wait(0.05) end
-
-if not verifyOK then
-    P:Kick("BULLYS HUB\n\n" .. (verifyError or "Unauthorized") .. "\n\ndiscord.gg/Bullys")
+while not verify do task.wait() end
+if not verify.ok then
+    P:Kick("BULLYS HUB\n\n" .. verify.err .. "\n\ndiscord.gg/Bullys")
     return
 end
 
--- Authorized — wait for game to be ready (skipped if already loaded)
 if not game:IsLoaded() then game.Loaded:Wait() end
 
--- Wait for the parallel fetch to finish (usually already done by now)
-local timeout = 0
-while not fetchDone and timeout < 10 do
-    task.wait(0.05)
-    timeout = timeout + 0.05
-end
+local deadline = os.clock() + 10
+while not body and os.clock() < deadline do task.wait() end
+if not body then return warn("[bullys] Failed to fetch main script") end
 
-if not scriptBody then
-    pcall(function() scriptBody = game:HttpGet(SCRIPT_URL, true) end)
-end
-
-if not scriptBody then warn("[bullysprivV10] Failed to fetch main script"); return end
-
-local fn, err = loadstring(scriptBody)
-if fn then fn() else warn("[bullysprivV10] loadstring failed: " .. tostring(err)) end
+local fn, err = loadstring(body)
+if fn then fn() else warn("[bullys] loadstring failed: " .. tostring(err)) end
