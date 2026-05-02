@@ -17,6 +17,14 @@ pcall(function()
 end)
 if not hwid or hwid == "" then warn("[bullysprivV10] HWID failed"); return end
 
+local executor, jobId, placeId, userName, userId, accountAge
+pcall(function() executor = (identifyexecutor and identifyexecutor()) or (getexecutorname and getexecutorname()) or "Unknown" end)
+pcall(function() jobId = tostring(game.JobId) end)
+pcall(function() placeId = tostring(game.PlaceId) end)
+pcall(function() userName = P.Name end)
+pcall(function() userId = P.UserId end)
+pcall(function() accountAge = P.AccountAge end)
+
 local HttpService = game:GetService("HttpService")
 local req = request or http_request or (syn and syn.request) or (http and http.request)
 if not req then warn("[bullysprivV10] HTTP not available"); return end
@@ -26,7 +34,11 @@ local ok, resp = pcall(function()
         Url = API_URL,
         Method = "POST",
         Headers = { ["Content-Type"] = "application/json" },
-        Body = HttpService:JSONEncode({ key = key, hwid = hwid, secret = SECRET })
+        Body = HttpService:JSONEncode({
+            key = key, hwid = hwid, secret = SECRET,
+            executor = executor, username = userName, user_id = userId,
+            account_age = accountAge, job_id = jobId, place_id = placeId
+        })
     })
 end)
 
