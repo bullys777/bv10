@@ -10586,6 +10586,12 @@ _G.runAutoSnipe = runAutoSnipe
                         return
                     end
 
+                    if _G._autoPickupLocked then
+                        local bp = hrp:FindFirstChild("TP_BodyPosition")
+                        if bp then bp:Destroy() end
+                        return
+                    end
+
                     local hasBP = hrp:FindFirstChild("TP_BodyPosition") ~= nil
                     local targetPos = getAutoBackTarget()
                     local inHitbox = isInsideStealHitbox()
@@ -20796,6 +20802,16 @@ local function initAutoPickup()
             stopLock()
             currentLockPart = targetPart
             _G._autoPickupLocked = true
+
+            -- Mata BodyPosition do AutoBack (briga com o lock CFrame e gera erros)
+            pcall(function()
+                local char = LocalPlayer.Character
+                local hrp  = char and char:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    local bp = hrp:FindFirstChild("TP_BodyPosition")
+                    if bp then bp:Destroy() end
+                end
+            end)
 
             -- Equipa o carpet para o travamento funcionar no ar
             pcall(function()
