@@ -20785,9 +20785,12 @@ local function initAutoPickup()
         local currentLockPart  = nil
         local camConn          = nil
 
+        local pickupHpConn = nil
+
         local function stopLock()
             if lockConn then lockConn:Disconnect(); lockConn = nil end
             if camConn  then camConn:Disconnect();  camConn  = nil end
+            if pickupHpConn then pcall(function() pickupHpConn:Disconnect() end); pickupHpConn = nil end
             currentLockPart = nil
             _G._autoPickupLocked = false
             -- Restaura câmera padrão
@@ -20810,6 +20813,21 @@ local function initAutoPickup()
                 if hrp then
                     local bp = hrp:FindFirstChild("TP_BodyPosition")
                     if bp then bp:Destroy() end
+                end
+            end)
+
+            -- Anti-die durante o lock (mesma lógica do antidieTpConnection do logística):
+            -- restaura HP quando chega a 0, evita morrer nos lasers/damage da base.
+            pcall(function()
+                local char = LocalPlayer.Character
+                local hum  = char and char:FindFirstChildOfClass("Humanoid")
+                if hum then
+                    pcall(function() hum.Health = hum.MaxHealth end)
+                    pickupHpConn = hum:GetPropertyChangedSignal("Health"):Connect(function()
+                        if hum.Health <= hum.MaxHealth * 0.5 then
+                            pcall(function() hum.Health = hum.MaxHealth end)
+                        end
+                    end)
                 end
             end)
 
