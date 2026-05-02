@@ -355,6 +355,12 @@ local DefaultConfig = {
 
     HideStatusHUD = false,
 
+    AutoPickupKey = "B",
+
+    AutoPickupActive = false,
+
+    AutoPickupKick = false,
+
 }
 
 local Config = DefaultConfig
@@ -402,6 +408,7 @@ if isfile and isfile(FileName) then
 end
 
 Config.ProximityAP = false
+Config.AutoPickupActive = false  -- sempre desativado ao iniciar
 
 if Config.CurrentTheme and THEMES and THEMES[Config.CurrentTheme] then
 
@@ -17990,7 +17997,7 @@ function buildMiniActionsUI()
     -- ── PAINEL principal ──────────────────────────────────────────────────
     local panel = Instance.new("Frame", maGui)
     panel.Name                   = "MiniPanel"
-    panel.Size                   = UDim2.new(0, 220, 0, 10)
+    panel.Size                   = UDim2.new(0, 260, 0, 10)
     panel.AutomaticSize          = Enum.AutomaticSize.Y
     local sp = Config.MiniUIPos or {X=0.01, Y=0.35}
     panel.Position               = UDim2.new(sp.X, 0, sp.Y, 0)
@@ -18389,6 +18396,49 @@ function buildMiniActionsUI()
         Config.AutoKickOnSteal = val
         SaveConfig()
         if _G.setAutoKickFromMiniUI then _G.setAutoKickFromMiniUI() end
+    end
+
+    -- ── PICKUP (lógica EXATA importada do hub Logística) ────────────────
+    miniSec("PICKUP", 35)
+    do
+        local pickupBtn = mBtn("Auto Pickup: OFF", 36, Color3.fromRGB(14,14,20), function() end)
+        local function updPickupBtn()
+            local on = Config.AutoPickupActive == true
+            pickupBtn.Text = on and "Auto Pickup: ON" or "Auto Pickup: OFF"
+            pickupBtn.BackgroundColor3 = on and Color3.fromRGB(80, 140, 255) or Color3.fromRGB(14,14,20)
+            pickupBtn.TextColor3 = on and Color3.new(0, 0, 0) or Color3.fromRGB(185,188,215)
+        end
+        updPickupBtn()
+        pickupBtn.MouseButton1Click:Connect(function()
+            if _G.AutoPickupToggle then
+                pcall(_G.AutoPickupToggle)
+            else
+                Config.AutoPickupActive = not (Config.AutoPickupActive == true)
+                SaveConfig()
+            end
+            updPickupBtn()
+        end)
+
+        local kickPkBtn = mBtn("Pickup Kick: OFF", 37, Color3.fromRGB(14,14,20), function() end)
+        local function updKickPkBtn()
+            local on = Config.AutoPickupKick == true
+            kickPkBtn.Text = on and "Pickup Kick: ON" or "Pickup Kick: OFF"
+            kickPkBtn.BackgroundColor3 = on and Color3.fromRGB(200, 60, 60) or Color3.fromRGB(14,14,20)
+            kickPkBtn.TextColor3 = on and Color3.new(1, 1, 1) or Color3.fromRGB(185,188,215)
+        end
+        updKickPkBtn()
+        kickPkBtn.MouseButton1Click:Connect(function()
+            Config.AutoPickupKick = not (Config.AutoPickupKick == true)
+            SaveConfig()
+            updKickPkBtn()
+            ShowNotification("PICKUP KICK", Config.AutoPickupKick and "ATIVADO" or "DESATIVADO")
+        end)
+
+        mKey(cont, "Pickup Key", 38,
+            function() return Config.AutoPickupKey or "B" end,
+            function(v) Config.AutoPickupKey = v end)
+
+        _G._pickupMiniRefresh = updPickupBtn
     end
 
     -- ── REJOIN + KICK (mesma linha) ─────────────────────────────────────
@@ -19102,14 +19152,17 @@ task.spawn(function()
                 proxy.Massless = true
                 proxy.Material = Enum.Material.Neon
                 proxy.Color = PART_COLOR
-                proxy.Transparency = 0.5
                 proxy.Reflectance = 0
                 proxy.CFrame = real.CFrame
+                -- HumanoidRootPart é invisível (só serve de âncora pro beam/billboard)
+                if real.Name == "HumanoidRootPart" then
+                    proxy.Transparency = 1
+                    skelRoot = proxy
+                else
+                    proxy.Transparency = 0.5
+                end
                 proxy.Parent = skeletonModel
                 skeletonParts[real] = proxy
-                if real.Name == "HumanoidRootPart" then
-                    skelRoot = proxy
-                end
             end
         end
 
@@ -19189,7 +19242,11 @@ task.spawn(function()
         if skeletonModel then
             for _, d in ipairs(skeletonModel:GetDescendants()) do
                 if d:IsA("BasePart") then
-                    d.Transparency = visible and 0.5 or 1
+                    if d.Name == "HumanoidRootPart" then
+                        d.Transparency = 1
+                    else
+                        d.Transparency = visible and 0.5 or 1
+                    end
                 end
             end
         end
@@ -20529,3 +20586,228 @@ local function bullysDefaultReverseSwap(attacker, oldPos, newPos)
 end
 
 _G.BullysReverseSwapHandler = bullysDefaultReverseSwap
+
+-- ══════════════════════════════════════════════════════════════════════════
+-- ▸ AUTO PICKUP · Lógica EXATA importada do hub Logística ◂
+-- Pega automaticamente o brainrot mais próximo na própria base.
+-- Só fica ativo se player estiver dentro da própria base (sign dist < 200).
+-- Não teleporta — apenas trava CFrame em cima do target e dispara o prompt.
+-- Para se o player já estiver segurando o brainrot.
+-- ══════════════════════════════════════════════════════════════════════════
+task.spawn(function()
+    if not Config.AutoPickupKey then Config.AutoPickupKey = "B" end
+    if Config.AutoPickupActive == nil then Config.AutoPickupActive = false end
+    if Config.AutoPickupKick == nil then Config.AutoPickupKick = false end
+
+    local autoPickupActive = false
+
+    local function findMyPlot()
+        local plots = Workspace:FindFirstChild("Plots")
+        if not plots then return nil end
+        local ok, Sync = pcall(function()
+            return require(ReplicatedStorage:WaitForChild("Packages"):WaitForChild("Synchronizer"))
+        end)
+        if not ok or not Sync then return nil end
+        for _, plot in ipairs(plots:GetChildren()) do
+            local okCh, ch = pcall(function() return Sync:Get(plot.Name) end)
+            if okCh and ch then
+                local owner = ch:Get("Owner")
+                if owner then
+                    local uid = (typeof(owner) == "Instance" and owner:IsA("Player") and owner.UserId)
+                             or (type(owner) == "table" and owner.UserId)
+                    if uid == LocalPlayer.UserId then return plot end
+                end
+            end
+        end
+        return nil
+    end
+
+    local function isInsideMyBase(hrp, myPlot)
+        if not hrp or not myPlot then return false end
+        local sign = myPlot:FindFirstChild("PlotSign")
+        if not sign then return false end
+        local signPart = sign:IsA("BasePart") and sign
+                      or sign:FindFirstChildWhichIsA("BasePart", true)
+        if not signPart then return false end
+        local d = (Vector2.new(hrp.Position.X, hrp.Position.Z) - Vector2.new(signPart.Position.X, signPart.Position.Z)).Magnitude
+        return d < 200
+    end
+
+    local IGNORED_TOOLS = {
+        ["Flying Carpet"] = true,
+        ["Quantum Cloner"] = true,
+        ["Balloon"] = true,
+    }
+    local function isHoldingBrainrot()
+        local char = LocalPlayer.Character
+        if not char then return false end
+        local carpetName = (Config.TpSettings and Config.TpSettings.Tool) or "Flying Carpet"
+        for _, v in ipairs(char:GetChildren()) do
+            if v:IsA("Tool") then
+                if v.Name == carpetName then continue end
+                if IGNORED_TOOLS[v.Name] then continue end
+                return true
+            end
+        end
+        return false
+    end
+
+    local PICKUP_KEYWORDS = {"collect","coletar","pickup","pick up","pegar","grab","take"}
+
+    local function getBestBaseTarget()
+        local cache = SharedState.AllAnimalsCache
+        if not cache then return nil, nil end
+        local myName = LocalPlayer.Name
+        local bestPart, bestData = nil, nil
+        local bestGv = 9999999  -- só aceita ≥10M
+        for _, a in ipairs(cache) do
+            if a and a.owner == myName and (tonumber(a.genValue) or 0) > bestGv then
+                local part = findAdorneeGlobal(a)
+                if part and part.Parent then
+                    bestGv   = tonumber(a.genValue)
+                    bestPart = part
+                    bestData = a
+                end
+            end
+        end
+        return bestPart, bestData
+    end
+
+    local function getPromptForPart(targetPart, myPlot)
+        if not targetPart or not myPlot then return nil end
+        for _, obj in ipairs(myPlot:GetDescendants()) do
+            if obj:IsA("ProximityPrompt") and obj.Enabled then
+                local txt = (obj.ActionText or ""):lower()
+                local matched = false
+                for _, kw in ipairs(PICKUP_KEYWORDS) do
+                    if txt:find(kw) then matched = true; break end
+                end
+                if matched then
+                    local part = obj.Parent
+                    if part and part:IsA("Attachment") then part = part.Parent end
+                    if part and part:IsA("BasePart") then
+                        local d = (part.Position - targetPart.Position).Magnitude
+                        if d < 12 then return obj end
+                    end
+                end
+            end
+        end
+        return nil
+    end
+
+    local function toggle()
+        autoPickupActive = not autoPickupActive
+        Config.AutoPickupActive = autoPickupActive
+        SaveConfig()
+        if _G._pickupMiniRefresh then pcall(_G._pickupMiniRefresh) end
+        ShowNotification("AUTO PICKUP", autoPickupActive and "ATIVADO" or "DESATIVADO")
+    end
+
+    _G.AutoPickupToggle = toggle
+    _G.AutoPickupOnToggle = function(active)
+        autoPickupActive = active == true
+        Config.AutoPickupActive = autoPickupActive
+        if _G._pickupMiniRefresh then pcall(_G._pickupMiniRefresh) end
+    end
+
+    UserInputService.InputBegan:Connect(function(input, processed)
+        if processed then return end
+        local key = Config.AutoPickupKey
+        if not key or key == "" then return end
+        local ok, kc = pcall(function() return Enum.KeyCode[key] end)
+        if ok and kc and input.KeyCode == kc then toggle() end
+    end)
+
+    -- Loop principal: trava CFrame acima do target e dispara o prompt
+    task.spawn(function()
+        local myPlot           = nil
+        local plotRefreshTimer = 0
+        local lockConn         = nil
+        local currentLockPart  = nil
+
+        local function stopLock()
+            if lockConn then lockConn:Disconnect(); lockConn = nil end
+            currentLockPart = nil
+        end
+
+        local function startLock(targetPart)
+            if currentLockPart == targetPart then return end
+            stopLock()
+            currentLockPart = targetPart
+
+            -- Equipa o carpet para o travamento funcionar no ar
+            pcall(function()
+                local char = LocalPlayer.Character
+                local hum  = char and char:FindFirstChildOfClass("Humanoid")
+                if hum then
+                    local carpetName = (Config.TpSettings and Config.TpSettings.Tool) or "Flying Carpet"
+                    local carpet = LocalPlayer.Backpack:FindFirstChild(carpetName) or char:FindFirstChild(carpetName)
+                    if carpet then hum:EquipTool(carpet) end
+                end
+            end)
+
+            lockConn = RunService.Heartbeat:Connect(function()
+                if not autoPickupActive then stopLock(); return end
+                local char = LocalPlayer.Character
+                local hrp  = char and char:FindFirstChild("HumanoidRootPart")
+                if not hrp or not targetPart or not targetPart.Parent then stopLock(); return end
+                hrp.CFrame = CFrame.new(targetPart.Position + Vector3.new(0, 9, 0)) * (hrp.CFrame - hrp.Position)
+                hrp.AssemblyLinearVelocity  = Vector3.zero
+                hrp.AssemblyAngularVelocity = Vector3.zero
+            end)
+        end
+
+        while true do
+            task.wait(0.25)
+
+            if not autoPickupActive then
+                stopLock()
+                continue
+            end
+
+            local char = LocalPlayer.Character
+            local hrp  = char and char:FindFirstChild("HumanoidRootPart")
+            if not hrp then continue end
+
+            if not myPlot or (tick() - plotRefreshTimer) > 10 then
+                myPlot = findMyPlot()
+                plotRefreshTimer = tick()
+            end
+
+            if not isInsideMyBase(hrp, myPlot) then
+                stopLock()
+                continue
+            end
+
+            local targetPart, targetData = getBestBaseTarget()
+            if not targetPart then
+                stopLock()
+                continue
+            end
+
+            if isHoldingBrainrot() then
+                stopLock()
+                -- Auto kick após pegar
+                if Config.AutoPickupKick then
+                    task.delay(0.5, function() pcall(kickPlayer) end)
+                end
+                continue
+            end
+
+            startLock(targetPart)
+
+            local prompt = getPromptForPart(targetPart, myPlot)
+            if prompt then
+                pcall(function()
+                    if fireproximityprompt then
+                        fireproximityprompt(prompt)
+                    else
+                        prompt:InputBegan(Enum.UserInputType.MouseButton1)
+                        task.wait(0.05)
+                        prompt:InputEnded(Enum.UserInputType.MouseButton1)
+                    end
+                end)
+            end
+        end
+    end)
+end)
