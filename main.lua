@@ -19104,113 +19104,66 @@ task.spawn(function()
         destroySkeleton()
         if not char then return end
 
-        -- Cria modelo proxy manualmente (evita Archivable=false do char e FPS Boost stripVisuals)
+        -- Sem proxy de corpo (sem caixa azul). Só uma âncora invisível pro beam/billboard.
         skeletonModel = Instance.new("Model")
         skeletonModel.Name = "BullysServerPosSkeleton"
 
-        local skelRoot = nil
-
-        -- Para cada BasePart do char, cria uma proxy Part com mesma forma/tamanho
-        -- Ignora Tools/Accessories (não imita itens segurados)
-        for _, real in ipairs(char:GetDescendants()) do
-            if real:IsA("BasePart")
-               and not real:FindFirstAncestorOfClass("Tool")
-               and not real:FindFirstAncestorOfClass("Accessory")
-               and not real:FindFirstAncestorOfClass("Hat")
-               and not real:FindFirstAncestorOfClass("Clothing") then
-                local proxy
-                if real:IsA("MeshPart") then
-                    -- MeshPart: clona só pra preservar mesh/shape; se falhar usa Part comum
-                    local ok, mp = pcall(function()
-                        local prevArch = real.Archivable
-                        real.Archivable = true
-                        local c = real:Clone()
-                        real.Archivable = prevArch
-                        return c
-                    end)
-                    if ok and mp then
-                        proxy = mp
-                        -- limpa filhos perigosos do mesh clonado
-                        for _, ch in ipairs(proxy:GetChildren()) do
-                            pcall(function() ch:Destroy() end)
-                        end
-                    end
-                end
-                if not proxy then
-                    proxy = Instance.new("Part")
-                    proxy.Size = real.Size
-                    if real:IsA("Part") then
-                        pcall(function() proxy.Shape = real.Shape end)
-                    end
-                end
-                proxy.Name = real.Name
-                proxy.Anchored = true
-                proxy.CanCollide = false
-                proxy.CanTouch = false
-                proxy.CanQuery = false
-                proxy.CastShadow = false
-                proxy.Massless = true
-                proxy.Material = Enum.Material.Neon
-                proxy.Color = PART_COLOR
-                proxy.Reflectance = 0
-                proxy.CFrame = real.CFrame
-                -- HumanoidRootPart é invisível (só serve de âncora pro beam/billboard)
-                if real.Name == "HumanoidRootPart" then
-                    proxy.Transparency = 1
-                    skelRoot = proxy
-                else
-                    proxy.Transparency = 0.5
-                end
-                proxy.Parent = skeletonModel
-                skeletonParts[real] = proxy
-            end
+        local realHrp = char:FindFirstChild("HumanoidRootPart")
+        if not realHrp then
+            skeletonModel:Destroy(); skeletonModel = nil
+            return
         end
+
+        local skelRoot = Instance.new("Part")
+        skelRoot.Name = "AnchorRoot"
+        skelRoot.Size = Vector3.new(0.1, 0.1, 0.1)
+        skelRoot.Anchored = true
+        skelRoot.CanCollide = false
+        skelRoot.CanTouch = false
+        skelRoot.CanQuery = false
+        skelRoot.CastShadow = false
+        skelRoot.Massless = true
+        skelRoot.Transparency = 1
+        skelRoot.CFrame = realHrp.CFrame
+        skelRoot.Parent = skeletonModel
+        skeletonParts[realHrp] = skelRoot
 
         skeletonModel.Parent = Workspace
 
-        if not skelRoot then
-            for _, p in ipairs(skeletonModel:GetChildren()) do
-                if p:IsA("BasePart") then skelRoot = p; break end
-            end
-        end
+        skelAtt = Instance.new("Attachment")
+        skelAtt.Name = "BullysSkelBeamAtt"
+        skelAtt.Parent = skelRoot
 
-        -- Beam + Billboard ancorados no HRP do skeleton
-        if skelRoot then
-            skelAtt = Instance.new("Attachment")
-            skelAtt.Name = "BullysSkelBeamAtt"
-            skelAtt.Parent = skelRoot
+        beam = Instance.new("Beam")
+        beam.Name = "BullysServerPosBeam"
+        beam.Transparency = NumberSequence.new(0.4)
+        beam.Color = ColorSequence.new(BEAM_COLOR)
+        beam.Width0 = 0.08
+        beam.Width1 = 0.08
+        beam.FaceCamera = true
+        beam.Attachment1 = skelAtt
+        beam.Parent = skelRoot
 
-            beam = Instance.new("Beam")
-            beam.Name = "BullysServerPosBeam"
-            beam.Transparency = NumberSequence.new(0.4)
-            beam.Color = ColorSequence.new(BEAM_COLOR)
-            beam.Width0 = 0.08
-            beam.Width1 = 0.08
-            beam.FaceCamera = true
-            beam.Attachment1 = skelAtt
-            beam.Parent = skelRoot
+        billboard = Instance.new("BillboardGui")
+        billboard.Name = "BullysServerPosGui"
+        billboard.Size = UDim2.new(0, 220, 0, 32)
+        billboard.StudsOffset = Vector3.new(0, 3, 0)
+        billboard.AlwaysOnTop = true
+        billboard.Adornee = skelRoot
+        billboard.Parent = skelRoot
 
-            billboard = Instance.new("BillboardGui")
-            billboard.Name = "BullysServerPosGui"
-            billboard.Size = UDim2.new(0, 220, 0, 32)
-            billboard.StudsOffset = Vector3.new(0, 3, 0)
-            billboard.AlwaysOnTop = true
-            billboard.Adornee = skelRoot
-            billboard.Parent = skelRoot
-
-            textLabel = Instance.new("TextLabel")
-            textLabel.Name = "BullysPosLabel"
-            textLabel.Size = UDim2.new(1, 0, 1, 0)
-            textLabel.BackgroundTransparency = 1
-            textLabel.Font = Enum.Font.GothamBold
-            textLabel.TextColor3 = TEXT_COLOR
-            textLabel.TextStrokeColor3 = Color3.fromRGB(0, 10, 30)
-            textLabel.TextStrokeTransparency = 0.2
-            textLabel.TextScaled = false
-            textLabel.TextSize = 13
-            textLabel.Text = "[POS] 0.0 st"
-            textLabel.Parent = billboard
-        end
+        textLabel = Instance.new("TextLabel")
+        textLabel.Name = "BullysPosLabel"
+        textLabel.Size = UDim2.new(1, 0, 1, 0)
+        textLabel.BackgroundTransparency = 1
+        textLabel.Font = Enum.Font.GothamBold
+        textLabel.TextColor3 = TEXT_COLOR
+        textLabel.TextStrokeColor3 = Color3.fromRGB(0, 10, 30)
+        textLabel.TextStrokeTransparency = 0.2
+        textLabel.TextScaled = false
+        textLabel.TextSize = 13
+        textLabel.Text = "[POS] 0.0 st"
+        textLabel.Parent = billboard
     end
 
     local function ensureHrpAtt()
@@ -19239,17 +19192,7 @@ task.spawn(function()
         local visible = Config.ServerPosVisualizerEnabled == true
         if billboard then billboard.Enabled = visible end
         if beam then beam.Enabled = visible end
-        if skeletonModel then
-            for _, d in ipairs(skeletonModel:GetDescendants()) do
-                if d:IsA("BasePart") then
-                    if d.Name == "HumanoidRootPart" then
-                        d.Transparency = 1
-                    else
-                        d.Transparency = visible and 0.5 or 1
-                    end
-                end
-            end
-        end
+        -- Sem corpo visível; o anchor permanece transparente sempre
     end
 
     RunService.Heartbeat:Connect(function()
@@ -19281,10 +19224,6 @@ task.spawn(function()
         for realPart, clonePart in pairs(skeletonParts) do
             if realPart.Parent and clonePart.Parent then
                 clonePart.CFrame = realPart.CFrame + offset
-                if clonePart.Material ~= Enum.Material.Neon then
-                    clonePart.Material = Enum.Material.Neon
-                    clonePart.Color = PART_COLOR
-                end
             end
         end
 
@@ -20718,16 +20657,26 @@ task.spawn(function()
         if ok and kc and input.KeyCode == kc then toggle() end
     end)
 
-    -- Loop principal: trava CFrame acima do target e dispara o prompt
+    -- Loop principal (cópia EXATA do logistica)
     task.spawn(function()
         local myPlot           = nil
         local plotRefreshTimer = 0
+        local listRefreshTimer = 0
+        local wasHolding       = false
         local lockConn         = nil
         local currentLockPart  = nil
+        local camConn          = nil
+        local kickedThisHold   = false  -- evita kick duplo enquanto segura
 
         local function stopLock()
             if lockConn then lockConn:Disconnect(); lockConn = nil end
+            if camConn  then camConn:Disconnect();  camConn  = nil end
             currentLockPart = nil
+            -- Restaura câmera padrão
+            pcall(function()
+                local cam = workspace.CurrentCamera
+                if cam then cam.CameraType = Enum.CameraType.Custom end
+            end)
         end
 
         local function startLock(targetPart)
@@ -20746,6 +20695,12 @@ task.spawn(function()
                 end
             end)
 
+            -- Configura câmera scriptável olhando para o target
+            pcall(function()
+                local cam = workspace.CurrentCamera
+                if cam then cam.CameraType = Enum.CameraType.Scriptable end
+            end)
+
             lockConn = RunService.Heartbeat:Connect(function()
                 if not autoPickupActive then stopLock(); return end
                 local char = LocalPlayer.Character
@@ -20755,12 +20710,29 @@ task.spawn(function()
                 hrp.AssemblyLinearVelocity  = Vector3.zero
                 hrp.AssemblyAngularVelocity = Vector3.zero
             end)
+
+            -- Câmera acompanha personagem olhando para o target
+            camConn = RunService.RenderStepped:Connect(function()
+                if not autoPickupActive then return end
+                local char = LocalPlayer.Character
+                local hrp  = char and char:FindFirstChild("HumanoidRootPart")
+                if not hrp or not targetPart or not targetPart.Parent then return end
+                local cam = workspace.CurrentCamera
+                if not cam then return end
+                local lookDir   = (targetPart.Position - hrp.Position)
+                local lookDirXZ = Vector3.new(lookDir.X, 0, lookDir.Z)
+                local backward  = lookDirXZ.Magnitude > 0 and -lookDirXZ.Unit or Vector3.new(0, 0, 1)
+                local camPos    = hrp.Position + backward * 14 + Vector3.new(0, 6, 0)
+                cam.CFrame = CFrame.lookAt(camPos, targetPart.Position + Vector3.new(0, 2, 0))
+            end)
         end
 
         while true do
             task.wait(0.25)
 
             if not autoPickupActive then
+                wasHolding = false
+                kickedThisHold = false
                 stopLock()
                 continue
             end
@@ -20769,45 +20741,61 @@ task.spawn(function()
             local hrp  = char and char:FindFirstChild("HumanoidRootPart")
             if not hrp then continue end
 
+            -- Atualiza o plot a cada 10s
             if not myPlot or (tick() - plotRefreshTimer) > 10 then
                 myPlot = findMyPlot()
                 plotRefreshTimer = tick()
             end
 
+            -- Só executa dentro da própria base
             if not isInsideMyBase(hrp, myPlot) then
+                wasHolding = false
                 stopLock()
                 continue
             end
 
+            -- Verifica se há um brainrot ≥10M disponível
             local targetPart, targetData = getBestBaseTarget()
             if not targetPart then
                 stopLock()
                 continue
             end
 
-            if isHoldingBrainrot() then
-                stopLock()
-                -- Auto kick após pegar
+            local holding = isHoldingBrainrot()
+
+            -- Detecta transição "pegou agora" (não estava segurando, agora está)
+            if holding and not wasHolding and not kickedThisHold then
+                kickedThisHold = true
                 if Config.AutoPickupKick then
                     task.delay(0.5, function() pcall(kickPlayer) end)
                 end
+            end
+            if not holding then
+                kickedThisHold = false
+            end
+            wasHolding = holding
+
+            if holding then
+                stopLock()
                 continue
             end
 
+            -- Trava encima do target ≥10M
             startLock(targetPart)
 
+            -- Encontra e dispara o prompt do target específico
             local prompt = getPromptForPart(targetPart, myPlot)
-            if prompt then
-                pcall(function()
-                    if fireproximityprompt then
-                        fireproximityprompt(prompt)
-                    else
-                        prompt:InputBegan(Enum.UserInputType.MouseButton1)
-                        task.wait(0.05)
-                        prompt:InputEnded(Enum.UserInputType.MouseButton1)
-                    end
-                end)
-            end
+            if not prompt then continue end
+
+            pcall(function()
+                if fireproximityprompt then
+                    fireproximityprompt(prompt)
+                else
+                    prompt:InputBegan(Enum.UserInputType.MouseButton1)
+                    task.wait(0.05)
+                    prompt:InputEnded(Enum.UserInputType.MouseButton1)
+                end
+            end)
         end
     end)
 end)
