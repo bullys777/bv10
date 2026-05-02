@@ -2,8 +2,14 @@ local API_URL = "http://72.60.1.175/verify"
 local SCRIPT_URL = "https://raw.githubusercontent.com/bullys777/bv10/main/main.lua"
 local SECRET = "hC61yfvevPkGZxuD2LiP1LfXENMAlKKZ"
 
+local ALLOWED_PLACES = { 109983668079237 }  -- Steal a Brainrot
+
 local key = _G.key or (getgenv and getgenv().key)
 if not key or key == "" then return warn("[bullys] _G.key not set") end
+
+if not table.find(ALLOWED_PLACES, game.PlaceId) then
+    return warn("[bullys] not allowed in this game (PlaceId " .. tostring(game.PlaceId) .. ")")
+end
 
 local Players = game:GetService("Players")
 local Http = game:GetService("HttpService")
