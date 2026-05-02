@@ -10196,6 +10196,7 @@ end
 local function runHitAutoBack()
     if not Config.AutoBack then return end
     if State.isTpMoving then return end
+    if _G._autoPickupLocked then return end
 
     local char = LocalPlayer.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
@@ -10325,6 +10326,7 @@ task.spawn(function()
         conn = hum.HealthChanged:Connect(function(newHealth)
             if not Config.AutoBack then lastHealth = newHealth; return end
             if State.stealJustCompleted then lastHealth = newHealth; return end
+            if _G._autoPickupLocked then lastHealth = newHealth; return end
             if newHealth < (lastHealth or newHealth) then
                 if (tick() - lastTrigger) > 0.25 then
                     lastTrigger = tick()
@@ -10338,7 +10340,7 @@ task.spawn(function()
         -- Monitor de estado e velocidade (Ragdoll/Rocket)
         task.spawn(function()
             while c and c.Parent and hum and hum.Parent do
-                if Config.AutoBack and not State.isTpMoving then
+                if Config.AutoBack and not State.isTpMoving and not _G._autoPickupLocked then
                     local velocity = hrp.AssemblyLinearVelocity
                     local state = hum:GetState()
 
@@ -10367,6 +10369,7 @@ task.spawn(function()
                         if not Config.AutoBack then return end
                         if State.isTpMoving then return end
                         if State.stealJustCompleted then return end
+                        if _G._autoPickupLocked then return end
                         if (tick() - lastTrigger) <= 0.25 then return end
                         lastTrigger = tick()
                         ignoreUntil = tick() + 0.4
@@ -10667,17 +10670,13 @@ task.spawn(function()
 
     local function checkSteal(gui)
 
-        if not Config.AutoKickOnSteal and not Config.AutoPickupKick then return end
+        if not Config.AutoKickOnSteal then return end
 
         local txt = (gui:IsA("TextLabel") or gui:IsA("TextButton")) and gui.Text
 
         if txt and string.find(txt, "You stole") then
 
-            if Config.AutoKickOnSteal or Config.AutoPickupKick then
-
-                kickPlayer()
-
-            end
+            kickPlayer()
 
         end
 
@@ -20784,6 +20783,7 @@ local function initAutoPickup()
             if lockConn then lockConn:Disconnect(); lockConn = nil end
             if camConn  then camConn:Disconnect();  camConn  = nil end
             currentLockPart = nil
+            _G._autoPickupLocked = false
             -- Restaura câmera padrão
             pcall(function()
                 local cam = workspace.CurrentCamera
@@ -20795,6 +20795,7 @@ local function initAutoPickup()
             if currentLockPart == targetPart then return end
             stopLock()
             currentLockPart = targetPart
+            _G._autoPickupLocked = true
 
             -- Equipa o carpet para o travamento funcionar no ar
             pcall(function()
