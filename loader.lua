@@ -6,9 +6,13 @@ local key = _G.key
 if not key then pcall(function() key = getgenv and getgenv().key end) end
 if not key or key == "" then warn("[bullysprivV10] _G.key not set"); return end
 
+local Players = game:GetService("Players")
+if not game:IsLoaded() then game.Loaded:Wait() end
+local P = Players.LocalPlayer
+while not P do task.wait() P = Players.LocalPlayer end
+
 local hwid
 pcall(function()
-    local P = game:GetService("Players").LocalPlayer
     hwid = tostring(P.UserId) .. "_" .. tostring(P.AccountAge) .. "_" .. game:GetService("RbxAnalyticsService"):GetClientId()
 end)
 if not hwid or hwid == "" then warn("[bullysprivV10] HWID failed"); return end
