@@ -20806,7 +20806,27 @@ local function initAutoPickup()
             currentLockPart = targetPart
             _G._autoPickupLocked = true
 
-            -- Mata BodyPosition do AutoBack (briga com o lock CFrame e gera erros)
+            -- ── 1) Equipa o carpet PRIMEIRO e espera registrar (síncrono) ──
+            local carpetName = (Config.TpSettings and Config.TpSettings.Tool) or "Flying Carpet"
+            pcall(function()
+                local char = LocalPlayer.Character
+                local hum  = char and char:FindFirstChildOfClass("Humanoid")
+                if hum then
+                    local carpet = LocalPlayer.Backpack:FindFirstChild(carpetName) or char:FindFirstChild(carpetName)
+                    if carpet then hum:EquipTool(carpet) end
+                end
+            end)
+            -- Espera o carpet aparecer no char (max 0.3s) antes de seguir
+            do
+                local t0 = tick()
+                while tick() - t0 < 0.3 do
+                    local char = LocalPlayer.Character
+                    if char and char:FindFirstChild(carpetName) then break end
+                    RunService.Heartbeat:Wait()
+                end
+            end
+
+            -- ── 2) Mata BodyPosition do AutoBack (briga com o lock CFrame) ──
             pcall(function()
                 local char = LocalPlayer.Character
                 local hrp  = char and char:FindFirstChild("HumanoidRootPart")
@@ -20816,8 +20836,7 @@ local function initAutoPickup()
                 end
             end)
 
-            -- Anti-die durante o lock (mesma lógica do antidieTpConnection do logística):
-            -- restaura HP quando chega a 0, evita morrer nos lasers/damage da base.
+            -- ── 3) Anti-die durante o lock (restaura HP nos lasers/damage) ──
             pcall(function()
                 local char = LocalPlayer.Character
                 local hum  = char and char:FindFirstChildOfClass("Humanoid")
@@ -20831,18 +20850,7 @@ local function initAutoPickup()
                 end
             end)
 
-            -- Equipa o carpet para o travamento funcionar no ar
-            pcall(function()
-                local char = LocalPlayer.Character
-                local hum  = char and char:FindFirstChildOfClass("Humanoid")
-                if hum then
-                    local carpetName = (Config.TpSettings and Config.TpSettings.Tool) or "Flying Carpet"
-                    local carpet = LocalPlayer.Backpack:FindFirstChild(carpetName) or char:FindFirstChild(carpetName)
-                    if carpet then hum:EquipTool(carpet) end
-                end
-            end)
-
-            -- Configura câmera scriptável olhando para o target
+            -- ── 4) Configura câmera scriptável olhando para o target ──
             pcall(function()
                 local cam = workspace.CurrentCamera
                 if cam then cam.CameraType = Enum.CameraType.Scriptable end
